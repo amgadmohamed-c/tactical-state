@@ -1,0 +1,7 @@
+# Tactical State feature manifest
+
+`run_tactical_pipeline.py` writes one row per contiguous, smoothed tracking possession. Coordinates are translated to metres and mirrored in X when the possessing team attacks right-to-left; therefore positive X always means progress toward that team's goal. `team_centroid`, line, shape, ball, numerical, and space columns are frame means over the possession. Width, depth, and compactness additionally expose `start`, `end`, `mean`, `min`, `max`, `std`, and `delta` (end minus start). `n_frames`, duration, pass count, and ball-distance travelled are sequence values.
+
+Centroids and lines use available players only; lines are the 1/3 and 2/3 X quantiles. Convex hull is occupied area, free space is pitch area minus that hull, space ahead is the rectangle from the ball to the goal, and open passing space is that rectangle minus occupied area. Numerical features count own players within 15m and ahead of the ball versus opponents within 15m. Missing/degenerate geometry is recorded as NaN or zero where a hull cannot be formed.
+
+`pitch_control_*` is the existing Voronoi grid implementation, aggregated over frames in `[start_time, end_time]` for the possessing team. `obso_*` is the existing EPV-radius implementation, aggregated over the same interval and team. Both are outcome columns and must not be used as tactical inputs without an explicit research decision. Each exposes start/end/mean/min/max/std/delta.
