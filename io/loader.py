@@ -13,6 +13,10 @@ import pandas as pd
 from .field_keys import PLAYER_ID_KEYS as _LOADER_PLAYER_ID_KEYS
 from .paths import match_dir
 from ..domain import Match
+from ..core.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def load_json(path: str | Path) -> Any:
@@ -53,18 +57,25 @@ def load_processed_match(match_id: str | int, processed_dir: str | Path, include
 
     home_ids, away_ids = set(), set()
     n_frames = 0
-    with bz2.open(tracking_path, "rt") as handle:
-        for line in handle:
-            frame = json.loads(line)
-            n_frames += 1
-            for p in frame.get("homePlayers", []):
-                pid = _get_first(p, _LOADER_PLAYER_ID_KEYS)
-                if pid is not None:
-                    home_ids.add(pid)
-            for p in frame.get("awayPlayers", []):
-                pid = _get_first(p, _LOADER_PLAYER_ID_KEYS)
-                if pid is not None:
-                    away_ids.add(pid)
+    try:
+        with bz2.open(tracking_path, "rt") as handle:
+            for line in handle:
+                frame = json.loads(line)
+                n_frames += 1
+                for p in frame.get("homePlayers", []):
+                    pid = _get_first(p, _LOADER_PLAYER_ID_KEYS)
+                    if pid is not None:
+                        home_ids.add(pid)
+                for p in frame.get("awayPlayers", []):
+                    pid = _get_first(p, _LOADER_PLAYER_ID_KEYS)
+                    if pid is not None:
+                        away_ids.add(pid)
+    except EOFError:
+        logger.warning(
+            "%s is truncated; loading the %d frames decoded before EOF.",
+            tracking_path,
+            n_frames,
+        )
 
     def _sort_key(v):
         try:
@@ -83,32 +94,38 @@ def load_processed_match(match_id: str | int, processed_dir: str | Path, include
     away_xy = np.full((n_frames, len(away_ids), 2), np.nan, dtype=np.float32)
     ball_xy = np.full((n_frames, 2), np.nan, dtype=np.float32)
 
-    with bz2.open(tracking_path, "rt") as handle:
-        for i, line in enumerate(handle):
-            frame = json.loads(line)
-            periods[i] = frame.get("period", 0) or 0
-            elapsed[i] = frame.get("periodElapsedTime", 0.0) or 0.0
+    try:
+        with bz2.open(tracking_path, "rt") as handle:
+            for i, line in enumerate(handle):
+                frame = json.loads(line)
+                periods[i] = frame.get("period", 0) or 0
+                elapsed[i] = frame.get("periodElapsedTime", 0.0) or 0.0
 
-            for p in frame.get("homePlayers", []):
-                parsed = _extract_lenient(p)
-                if parsed is None:
-                    continue
-                pid, x, y = parsed
-                home_xy[i, home_idx[pid]] = (x + pitch_length / 2, y + pitch_width / 2)
+                for p in frame.get("homePlayers", []):
+                    parsed = _extract_lenient(p)
+                    if parsed is None:
+                        continue
+                    pid, x, y = parsed
+                    home_xy[i, home_idx[pid]] = (x + pitch_length / 2, y + pitch_width / 2)
 
-            for p in frame.get("awayPlayers", []):
-                parsed = _extract_lenient(p)
-                if parsed is None:
-                    continue
-                pid, x, y = parsed
-                away_xy[i, away_idx[pid]] = (x + pitch_length / 2, y + pitch_width / 2)
+                for p in frame.get("awayPlayers", []):
+                    parsed = _extract_lenient(p)
+                    if parsed is None:
+                        continue
+                    pid, x, y = parsed
+                    away_xy[i, away_idx[pid]] = (x + pitch_length / 2, y + pitch_width / 2)
 
-            balls = frame.get("balls", [])
-            if balls:
-                b = balls[0]
-                bx, by = b.get("x"), b.get("y")
-                if bx is not None and by is not None:
-                    ball_xy[i] = (bx + pitch_length / 2, by + pitch_width / 2)
+                balls = frame.get("balls", [])
+                if balls:
+                    b = balls[0]
+                    bx, by = b.get("x"), b.get("y")
+                    if bx is not None and by is not None:
+                        ball_xy[i] = (bx + pitch_length / 2, by + pitch_width / 2)
+    except EOFError:
+        logger.warning(
+            "%s ended during the second read; retaining decoded tracking frames.",
+            tracking_path,
+        )
 
     goalkeepers = metadata.get("goalkeepers", {})
     formations_df = pd.read_csv(formations_path) if include_formations and formations_path.exists() else None

@@ -136,55 +136,59 @@ def compute_pitch_control_for_match(match_id, processed_dir, downsample=1, force
     records = []
     frame_count = 0
     
-    with bz2.open(tracking_path, "rt") as f:
-        for line in f:
-            frame = json.loads(line)
-            frame_count += 1
-            if frame_count % downsample != 0:
-                continue
+    try:
+        with bz2.open(tracking_path, "rt") as f:
+            for line in f:
+                frame = json.loads(line)
+                frame_count += 1
+                if frame_count % downsample != 0:
+                    continue
             
-            period = frame.get("period")
-            elapsed = frame.get("periodElapsedTime")
-            if period is None or elapsed is None:
-                continue
-            
-            # Extract positions with shift
-            home_positions = []
-            for p in frame.get("homePlayers", []):
-                parsed = _extract_player_xy(p)
-                if parsed is not None:
-                    _, x, y = parsed
-                    home_positions.append((x + x_shift, y + y_shift))
-            away_positions = []
-            for p in frame.get("awayPlayers", []):
-                parsed = _extract_player_xy(p)
-                if parsed is not None:
-                    _, x, y = parsed
-                    away_positions.append((x + x_shift, y + y_shift))
-            
-            # Ball position with shift
-            balls = frame.get("balls", [])
-            if not balls:
-                continue
-            ball = balls[0]
-            bx = ball.get("x")
-            by = ball.get("y")
-            if bx is None or by is None:
-                continue
-            bx += x_shift
-            by += y_shift
-            
-            # Compute control
-            result = compute_pitch_control_frame(
-                home_positions, away_positions, (bx, by),
-                pitch_length, pitch_width,
-            )
-            records.append({
-                "period": period,
-                "elapsed": elapsed,
-                "home_control": result["home_control"],
-                "away_control": result["away_control"],
-            })
+                period = frame.get("period")
+                elapsed = frame.get("periodElapsedTime")
+                if period is None or elapsed is None:
+                    continue
+
+                home_positions = []
+                for p in frame.get("homePlayers", []):
+                    parsed = _extract_player_xy(p)
+                    if parsed is not None:
+                        _, x, y = parsed
+                        home_positions.append((x + x_shift, y + y_shift))
+                away_positions = []
+                for p in frame.get("awayPlayers", []):
+                    parsed = _extract_player_xy(p)
+                    if parsed is not None:
+                        _, x, y = parsed
+                        away_positions.append((x + x_shift, y + y_shift))
+
+                balls = frame.get("balls", [])
+                if not balls:
+                    continue
+                ball = balls[0]
+                bx = ball.get("x")
+                by = ball.get("y")
+                if bx is None or by is None:
+                    continue
+                bx += x_shift
+                by += y_shift
+
+                result = compute_pitch_control_frame(
+                    home_positions, away_positions, (bx, by),
+                    pitch_length, pitch_width,
+                )
+                records.append({
+                    "period": period,
+                    "elapsed": elapsed,
+                    "home_control": result["home_control"],
+                    "away_control": result["away_control"],
+                })
+    except EOFError:
+        logger.warning(
+            "%s is truncated; retaining Pitch Control for %d decoded frames.",
+            tracking_path,
+            frame_count,
+        )
     
     df = pd.DataFrame(records)
     if not df.empty:
